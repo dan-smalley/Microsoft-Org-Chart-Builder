@@ -1,0 +1,11 @@
+logFormat: "%(asctime)s: %(levelname)s - %(message)s"    # https://docs.python.org/3/library/logging.html#logrecord-attributes
+logLevel: INFO    # Valid options: 'CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'
+
+nameExclusions:
+  - (admin)
+  - (service account)
+  - (vendor account)
+
+mailExclusions:
+  - _adm
+  - -adm
