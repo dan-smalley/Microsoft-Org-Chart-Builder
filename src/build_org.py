@@ -108,7 +108,7 @@ def get_department(_id):
         return None
 
 
-def get_reports(_id, reports_to, department, depth):
+def get_reports(_id, manager, department, depth):
     global managers
     request = requests.get(f'https://graph.microsoft.com/v1.0/users/{_id}/directReports', headers=headers)
     reports = request.json()['value']
@@ -116,7 +116,7 @@ def get_reports(_id, reports_to, department, depth):
         department = get_department(_id)
         managers += 1
         depth += 1
-        logging.info(f'Processing reports for {reports_to}, {department}  ---  {managers} managers / {len(org)} employees')
+        logging.info(f'Processing reports for {manager}, {department}  ---  {managers} managers / {len(org)} employees')
         for report in reports:
             get_reports(report['id'], report['displayName'], department, depth)
             if not exclude_account(report):
@@ -124,38 +124,64 @@ def get_reports(_id, reports_to, department, depth):
                     'name': report['displayName'],
                     'email': report['userPrincipalName'],
                     'title': report['jobTitle'],
-                    'reports_to': reports_to,
+                    'manager': manager,
                     'department': department,
                     'depth': depth
     })
 
 
-# def build_hierarchy():
-    depth = 0
-    # Find highest depth value
-    for employee in org:
-        if employee['depth'] > depth:
-            depth = employee['depth']
+def sanitize_results():
+    c_org = []
+    for p in org:
+        name, manager, email, title = None, None, None, None
+        if p['name'] is not None:
+            if ',' in p['name']:
+                name = f'{p["name"].split(",")[0]} {p["name"].split(",")[1].strip()}'
+            else:
+                name = p["name"]
+            name = name.replace(',', '').replace('/', '').replace('\'', '').replace('"', '').replace('\\', '').strip()
+        if p['manager'] is not None:
+            if ',' in p['manager']:
+                manager = f'{p["manager"].split(",")[0]} {p["manager"].split(",")[1].strip()}'
+            else:
+                manager = p['manager']
+            manager = manager.replace(',', '').replace('/', '').replace('\'', '').replace('"', '').replace('\\', '').strip()
+        if p['title'] is not None:
+            title = p['title'].replace(',', '').replace('/', '').replace('\'', '').replace('"', '').replace('\\', '').strip()
+        if p['email'] is not None:
+            email = p['email'].replace('"', '').strip()
 
-    org_dict = {}
-    for i in range(0, depth + 1):
-        if i == 0:
-            for employee in org:
-                if employee['depth'] == i:
-                    org_dict[employee['name']] = {"info": employee, "reports": {}}
-        else:
-            for employee in org:
-                if employee['depth'] == i:
-                    pass # TODO: This function wont work, need to build the org back to the source somehow
+        c_person = {
+            'name': name,
+            'email': email,
+            'title': title,
+            'manager': manager,
+        }
+
+        c_org.append(c_person)
+
+    return c_org
 
 
-
-
+def write_file(f_name, vendors, org_list):
+    with open('drawio_csv_template.txt', 'r') as template:
+        with open(f_name, 'w') as outfile:
+            for line in template.readlines():
+                outfile.writelines(line)
+            for p in org_list:
+                if p['title'] is None:
+                    outfile.writelines(f"\n{p['name']},{p['manager']},{p['email']},{p['title']}")
+                elif 'vendor' not in p['title'].lower():
+                    outfile.writelines(f"\n{p['name']},{p['manager']},{p['email']},{p['title']}")
+                elif 'vendor' in p['title'].lower() and vendors is True:
+                    outfile.writelines(f"\n{p['name']},{p['manager']},{p['email']},{p['title']}")
+    logging.info(f'Org file written to {f_name}, see instructions in file for how to upload to draw.io')
 
 
 # Main body
 global org
 global managers
+
 org = []
 managers = 0
 validate_token()
@@ -169,12 +195,19 @@ org.append({
                     'name': boss_node['displayName'],
                     'email': boss_node['userPrincipalName'],
                     'title': boss_node['jobTitle'],
-                    'reports_to': None,
+                    'manager': None,
                     'department': boss_node['department'],
                     'depth': 0
     })
 
 get_reports(boss_id, boss_node['displayName'], boss_node['department'], 0)
 
-logging.info(f'DONE querying, building hierarchy  ---  {managers} managers / {len(org)} employees')
+logging.info(f'Done querying, sanitizing output  ---  {managers} managers / {len(org)} employees')
 
+clean_org = sanitize_results()
+
+f_name = pyip.inputStr('Enter the name of the file you want to save the results: ')
+vendors = pyip.inputYesNo('Would you like to include vendors in the org chart (y/n): ')
+write_file(f_name, vendors, clean_org)
+
+logging.info(f'Script complete!')
